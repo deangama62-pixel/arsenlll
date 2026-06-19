@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
 local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
@@ -21,6 +22,7 @@ ScreenGui.Name = "FerhacksCombo"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
+-- Main Frame
 local Frame = Instance.new("Frame")
 Frame.Size = UDim2.new(0, 260, 0, 380)
 Frame.Position = UDim2.new(0, 10, 0.3, 0)
@@ -31,16 +33,56 @@ Frame.Parent = ScreenGui
 
 Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 10)
 
+-- Toggle Button (when menu is closed)
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleBtn.Position = UDim2.new(0, 10, 0, 10)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+ToggleBtn.Text = "OPEN"
+ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+ToggleBtn.TextSize = 12
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.Visible = false
+ToggleBtn.Parent = ScreenGui
+Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 8)
+
+-- Title Bar (for dragging)
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = Frame
+Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 10)
+
+-- Fix corner for title bar
+local TitleCornerFix = Instance.new("Frame")
+TitleCornerFix.Size = UDim2.new(1, 0, 0, 10)
+TitleCornerFix.Position = UDim2.new(0, 0, 0, 30)
+TitleCornerFix.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+TitleCornerFix.BorderSizePixel = 0
+TitleCornerFix.Parent = TitleBar
+
 -- Title
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 40)
-Title.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.BackgroundTransparency = 1
 Title.Text = "FERHACKS COMBO"
 Title.TextColor3 = Color3.fromRGB(255, 100, 100)
 Title.TextSize = 18
 Title.Font = Enum.Font.GothamBold
-Title.Parent = Frame
-Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
+Title.Parent = TitleBar
+
+-- Close Button
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -35, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseBtn.TextSize = 14
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = TitleBar
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
 
 -- Creator
 local Creator = Instance.new("TextLabel")
@@ -61,6 +103,59 @@ Status.Text = "Ready"
 Status.TextColor3 = Color3.fromRGB(200, 200, 200)
 Status.TextSize = 12
 Status.Parent = Frame
+
+-- Drag Variables
+local dragging = false
+local dragInput = nil
+local dragStart = nil
+local startPos = nil
+
+-- Drag Function
+local function updateDrag(input)
+    local delta = input.Position - dragStart
+    Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+-- Drag Events
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = Frame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+TitleBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateDrag(input)
+    end
+end)
+
+-- Close/Open Functions
+local function CloseMenu()
+    Frame.Visible = false
+    ToggleBtn.Visible = true
+end
+
+local function OpenMenu()
+    Frame.Visible = true
+    ToggleBtn.Visible = false
+end
+
+CloseBtn.MouseButton1Click:Connect(CloseMenu)
+ToggleBtn.MouseButton1Click:Connect(OpenMenu)
 
 -- Button function
 local function CreateButton(text, yPos, callback)
@@ -449,7 +544,7 @@ end)
 pcall(function()
     StarterGui:SetCore("SendNotification", {
         Title = "FERHACKS Combo",
-        Text = "Hitbox: Shoot anywhere near enemies\nESP: See through walls",
+        Text = "Hitbox: Shoot anywhere near enemies\nESP: See through walls\nDrag title bar to move menu",
         Duration = 5
     })
 end)
@@ -457,3 +552,5 @@ end)
 print("=== FERHACKS COMBO LOADED ===")
 print("Hitbox: Toggle to expand enemy hitboxes")
 print("ESP: Toggle to see enemies through walls")
+print("UI: Click X to close, OPEN button to reopen")
+print("Drag the title bar to move the menu")
