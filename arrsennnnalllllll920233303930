@@ -1,10 +1,10 @@
 -- // Arsenal Features Script - Rayfield UI | Clean OP Pack
--- Ferhacks Edition - WalkSpeed Fixed | Silent/Trigger/InfAmmo Removed
+-- Ferhacks Edition - WalkSpeed Fixed | FOV Circle | Distance Limit | Advanced ESP
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "FerHacks Updated Version",  -- Updated Menu Name
+    Name = "FerHacks Updated Version",
     LoadingTitle = "Ferhacks Loader",
     LoadingSubtitle = "by @FerHackss - https://www.youtube.com/@FerHackss",
     ConfigurationSaving = {
@@ -28,14 +28,33 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
+-- Variables
 local aimbotEnabled = false
 local espEnabled = false
+local skeletonEnabled = false
+local tracerEnabled = false
 local noclipEnabled = false
 local noRecoilEnabled = false
 local speedEnabled = false
-local espObjects = {}
+local fovEnabled = true
+local fovRadius = 150
+local maxAimbotDistance = 200
+local espObjects = {}      -- For Billboard (name/health/dist)
+local skeletonObjects = {} -- For skeleton lines
+local tracerObjects = {}   -- For tracers
 local noclipConnection = nil
 local currentWalkSpeed = 60
+local speedConnection = nil
+
+-- FOV Circle
+local fovCircle = Drawing.new("Circle")
+fovCircle.Thickness = 2
+fovCircle.NumSides = 64
+fovCircle.Radius = fovRadius
+fovCircle.Color = Color3.fromRGB(0, 255, 100)
+fovCircle.Transparency = 0.7
+fovCircle.Filled = false
+fovCircle.Visible = false
 
 -- Team Check
 local function isEnemy(player)
@@ -44,18 +63,26 @@ local function isEnemy(player)
     return player.Team ~= LocalPlayer.Team
 end
 
--- Get Closest Enemy
+-- Get Closest Enemy (unchanged)
 local function getClosestEnemy()
     local closest = nil
     local shortestDist = math.huge
     local mousePos = Camera.CFrame.Position
+    local screenCenter = Camera.ViewportSize / 2
+
     for _, player in ipairs(Players:GetPlayers()) do
-        if isEnemy(player) and player.Character then
-            local root = player.Character:FindFirstChild("HumanoidRootPart")
-            if root then
-                local dist = (root.Position - mousePos).Magnitude
-                if dist < shortestDist then
-                    shortestDist = dist
+        if isEnemy(player) and player.Character and player.Character:FindFirstChild("Head") then
+            local head = player.Character.Head
+            local dist3D = (head.Position - mousePos).Magnitude
+            if dist3D > maxAimbotDistance then continue end
+            
+            local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local distToCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                if distToCenter > fovRadius then continue end
+                
+                if dist3D < shortestDist then
+                    shortestDist = dist3D
                     closest = player
                 end
             end
@@ -64,8 +91,171 @@ local function getClosestEnemy()
     return closest
 end
 
--- Visible Aimbot
+-- Persistent Speed Hack (unchanged)
+local function enforceWalkSpeed()
+    if not speedEnabled then return end
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.WalkSpeed = currentWalkSpeed
+    end
+end
+
+local function startSpeedHack()
+    if speedConnection then return end
+    speedConnection = RunService.Heartbeat:Connect(enforceWalkSpeed)
+end
+
+local function stopSpeedHack()
+    if speedConnection then speedConnection:Disconnect() speedConnection = nil end
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.WalkSpeed = 16
+    end
+end
+
+-- ==================== ADVANCED ESP ====================
+
+local function createESP(player)
+    if not isEnemy(player) then return end
+    
+    -- Billboard (Name + Health + Distance)
+    if not espObjects[player] then
+        local billboard = Instance.new("BillboardGui")
+        billboard.Adornee = player.Character and player.Character:FindFirstChild("Head")
+        billboard.AlwaysOnTop = true
+        billboard.Size = UDim2.new(0, 200, 0, 60)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.Parent = Camera
+
+        local text = Instance.new("TextLabel")
+        text.Size = UDim2.new(1, 0, 1, 0)
+        text.BackgroundTransparency = 1
+        text.TextColor3 = Color3.fromRGB(255, 60, 60)
+        text.TextStrokeTransparency = 0.2
+        text.Font = Enum.Font.Code
+        text.TextSize = 14
+        text.Text = ""
+        text.Parent = billboard
+
+        espObjects[player] = {Billboard = billboard, Text = text}
+    end
+
+    -- Skeleton
+    if not skeletonObjects[player] then
+        skeletonObjects[player] = {}
+    end
+
+    -- Tracer
+    if not tracerObjects[player] then
+        local tracer = Drawing.new("Line")
+        tracer.Thickness = 2
+        tracer.Color = Color3.fromRGB(255, 60, 60)
+        tracer.Transparency = 0.8
+        tracer.Visible = false
+        tracerObjects[player] = tracer
+    end
+end
+
+local function updateESP()
+    for player, data in pairs(espObjects) do
+        if player.Character and player.Character:FindFirstChild("Head") then
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            local hum = player.Character:FindFirstChild("Humanoid")
+            local lpRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            
+            local dist = lpRoot and math.floor((root.Position - lpRoot.Position).Magnitude) or 0
+            local hp = hum and math.floor(hum.Health) or 0
+            
+            data.Text.Text = player.Name .. "\n[" .. dist .. "s] [" .. hp .. "hp]"
+            data.Billboard.Adornee = player.Character.Head
+        end
+    end
+end
+
+local function updateSkeleton(player)
+    local char = player.Character
+    if not char or not skeletonEnabled then return end
+    
+    local parts = {
+        Head = char:FindFirstChild("Head"),
+        Neck = char:FindFirstChild("Neck") or char:FindFirstChild("Head"),
+        UpperTorso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso"),
+        LowerTorso = char:FindFirstChild("LowerTorso") or char:FindFirstChild("Torso"),
+        LeftUpperArm = char:FindFirstChild("LeftUpperArm"),
+        LeftLowerArm = char:FindFirstChild("LeftLowerArm"),
+        LeftHand = char:FindFirstChild("LeftHand"),
+        RightUpperArm = char:FindFirstChild("RightUpperArm"),
+        RightLowerArm = char:FindFirstChild("RightLowerArm"),
+        RightHand = char:FindFirstChild("RightHand"),
+        LeftUpperLeg = char:FindFirstChild("LeftUpperLeg"),
+        LeftLowerLeg = char:FindFirstChild("LeftLowerLeg"),
+        LeftFoot = char:FindFirstChild("LeftFoot"),
+        RightUpperLeg = char:FindFirstChild("RightUpperLeg"),
+        RightLowerLeg = char:FindFirstChild("RightLowerLeg"),
+        RightFoot = char:FindFirstChild("RightFoot"),
+    }
+    
+    local connections = {
+        {parts.Head, parts.UpperTorso},
+        {parts.UpperTorso, parts.LowerTorso},
+        {parts.UpperTorso, parts.LeftUpperArm},
+        {parts.LeftUpperArm, parts.LeftLowerArm},
+        {parts.LeftLowerArm, parts.LeftHand},
+        {parts.UpperTorso, parts.RightUpperArm},
+        {parts.RightUpperArm, parts.RightLowerArm},
+        {parts.RightLowerArm, parts.RightHand},
+        {parts.LowerTorso, parts.LeftUpperLeg},
+        {parts.LeftUpperLeg, parts.LeftLowerLeg},
+        {parts.LeftLowerLeg, parts.LeftFoot},
+        {parts.LowerTorso, parts.RightUpperLeg},
+        {parts.RightUpperLeg, parts.RightLowerLeg},
+        {parts.RightLowerLeg, parts.RightFoot},
+    }
+    
+    for i, conn in ipairs(connections) do
+        local line = skeletonObjects[player][i] or Drawing.new("Line")
+        line.Thickness = 2
+        line.Color = Color3.fromRGB(0, 255, 150)
+        line.Transparency = 0.9
+        
+        if conn[1] and conn[2] then
+            local p1 = Camera:WorldToViewportPoint(conn[1].Position)
+            local p2 = Camera:WorldToViewportPoint(conn[2].Position)
+            line.From = Vector2.new(p1.X, p1.Y)
+            line.To = Vector2.new(p2.X, p2.Y)
+            line.Visible = true
+        else
+            line.Visible = false
+        end
+        
+        skeletonObjects[player][i] = line
+    end
+end
+
+local function updateTracers(player)
+    local tracer = tracerObjects[player]
+    if not tracer or not tracerEnabled then return end
+    
+    local char = player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        local rootPos = Camera:WorldToViewportPoint(char.HumanoidRootPart.Position)
+        local screenBottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+        
+        tracer.From = screenBottom
+        tracer.To = Vector2.new(rootPos.X, rootPos.Y)
+        tracer.Visible = true
+    else
+        tracer.Visible = false
+    end
+end
+
+-- Main Render Loop
 RunService.RenderStepped:Connect(function()
+    -- FOV Circle
+    if fovCircle then
+        fovCircle.Position = Camera.ViewportSize / 2
+        fovCircle.Radius = fovRadius
+        fovCircle.Visible = aimbotEnabled and fovEnabled
+    end
+
     if aimbotEnabled then
         local closest = getClosestEnemy()
         if closest and closest.Character and closest.Character:FindFirstChild("Head") then
@@ -74,182 +264,98 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Enhanced ESP
     if espEnabled then
-        for player, data in pairs(espObjects) do
-            if player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("HumanoidRootPart") then
-                local root = player.Character.HumanoidRootPart
-                local hum = player.Character:FindFirstChild("Humanoid")
-                local lpRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                local dist = lpRoot and math.floor((root.Position - lpRoot.Position).Magnitude) or 0
-                local hp = hum and math.floor(hum.Health) or 0
-                data.Text.Text = player.Name .. "\n[" .. dist .. "s] [" .. hp .. "hp]"
-                data.Billboard.Adornee = player.Character.Head
+        updateESP()
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if isEnemy(player) and player.Character then
+                if skeletonEnabled then updateSkeleton(player) end
+                if tracerEnabled then updateTracers(player) end
             end
         end
     end
 end)
 
--- ESP
-local function createESP(player)
-    if not isEnemy(player) or espObjects[player] then return end
-    local billboard = Instance.new("BillboardGui")
-    billboard.Adornee = player.Character and player.Character:FindFirstChild("Head")
-    billboard.AlwaysOnTop = true
-    billboard.Size = UDim2.new(0, 160, 0, 50)
-    billboard.StudsOffset = Vector3.new(0, 2.8, 0)
-    billboard.Parent = Camera
-
-    local text = Instance.new("TextLabel")
-    text.Size = UDim2.new(1, 0, 1, 0)
-    text.BackgroundTransparency = 1
-    text.TextColor3 = Color3.fromRGB(255, 60, 60)
-    text.TextStrokeTransparency = 0.3
-    text.Font = Enum.Font.Code
-    text.TextSize = 13
-    text.Parent = billboard
-
-    espObjects[player] = {Billboard = billboard, Text = text}
-end
-
--- WalkSpeed Fix (Persistent on Respawn)
-local function updateWalkSpeed()
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid.WalkSpeed = speedEnabled and currentWalkSpeed or 16
+-- Cleanup function
+local function cleanupESP(player)
+    if espObjects[player] then
+        if espObjects[player].Billboard then espObjects[player].Billboard:Destroy() end
+        espObjects[player] = nil
     end
-end
-
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(0.5)
-    updateWalkSpeed()
-end)
-
--- NoClip
-local function toggleNoClip(state)
-    noclipEnabled = state
-    if state and not noclipConnection then
-        noclipConnection = RunService.Stepped:Connect(function()
-            if noclipEnabled and LocalPlayer.Character then
-                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanCollide = false end
-                end
-            end
-        end)
-    elseif not state and noclipConnection then
-        noclipConnection:Disconnect()
-        noclipConnection = nil
-        if LocalPlayer.Character then
-            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = true end
-            end
+    if skeletonObjects[player] then
+        for _, line in pairs(skeletonObjects[player]) do
+            if line then line:Remove() end
         end
+        skeletonObjects[player] = nil
     end
-end
-
--- No Recoil
-local function toggleNoRecoil(state)
-    noRecoilEnabled = state
-    if state then
-        local function applyNoRecoil()
-            for _, v in pairs(ReplicatedStorage.Weapons:GetDescendants()) do
-                if v.Name:find("Recoil") and (v:IsA("NumberValue") or v:IsA("IntValue")) then
-                    v.Value = 0
-                end
-            end
-        end
-        applyNoRecoil()
-        Rayfield:Notify({Title = "No Recoil", Content = "Enabled", Duration = 3})
-    else
-        Rayfield:Notify({Title = "No Recoil", Content = "Disabled", Duration = 3})
+    if tracerObjects[player] then
+        if tracerObjects[player] then tracerObjects[player]:Remove() end
+        tracerObjects[player] = nil
     end
 end
 
 -- Player Handlers
 Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function() task.wait(1) createESP(player) end)
+    player.CharacterAdded:Connect(function()
+        task.wait(1)
+        createESP(player)
+    end)
 end)
 
 for _, player in ipairs(Players:GetPlayers()) do
     if player ~= LocalPlayer then
         if player.Character then createESP(player) end
         player.CharacterAdded:Connect(function() task.wait(1) createESP(player) end)
+        player.CharacterRemoving:Connect(function() cleanupESP(player) end)
     end
 end
 
--- UI
-MainTab:CreateButton({
-    Name = "📺 Visit FerHackss YouTube",
-    Callback = function()
-        setclipboard("https://www.youtube.com/@FerHackss")
-        Rayfield:Notify({Title = "Copied", Content = "https://www.youtube.com/@FerHackss", Duration = 5})
-    end,
-})
+-- ====================== UI ======================
 
-CombatTab:CreateToggle({
-    Name = "Visible Aimbot",
-    CurrentValue = false,
-    Callback = function(Value) aimbotEnabled = Value end
-})
+MainTab:CreateButton({ Name = "📺 Visit FerHackss YouTube", Callback = function()
+    setclipboard("https://www.youtube.com/@FerHackss")
+    Rayfield:Notify({Title = "Copied", Content = "https://www.youtube.com/@FerHackss", Duration = 5})
+end})
 
-CombatTab:CreateToggle({
-    Name = "No Recoil",
-    CurrentValue = false,
-    Callback = function(Value) toggleNoRecoil(Value) end
-})
+CombatTab:CreateToggle({ Name = "Visible Aimbot", CurrentValue = false, Callback = function(Value) aimbotEnabled = Value end })
+CombatTab:CreateToggle({ Name = "Show FOV Circle", CurrentValue = true, Callback = function(Value) fovEnabled = Value end })
+CombatTab:CreateSlider({ Name = "Aimbot FOV", Range = {0, 800}, Increment = 5, CurrentValue = 150, Callback = function(Value) fovRadius = Value end })
+CombatTab:CreateSlider({ Name = "Aimbot Max Distance", Range = {0, 500}, Increment = 10, CurrentValue = 200, Callback = function(Value) maxAimbotDistance = Value end })
+CombatTab:CreateToggle({ Name = "No Recoil", CurrentValue = false, Callback = function(Value) toggleNoRecoil(Value) end })
 
-CombatTab:CreateDropdown({
-    Name = "Hit Part",
-    Options = {"Head", "HumanoidRootPart", "Random"},
-    CurrentOption = {"Head"},
-    Callback = function(Option) end  -- Kept for future
-})
-
+-- Visuals Tab - Advanced ESP
 VisualsTab:CreateToggle({
-    Name = "ESP + Distance + Health",
+    Name = "ESP Master (Name/Health/Distance)",
     CurrentValue = false,
     Callback = function(Value)
         espEnabled = Value
-        if Value then
-            for _, p in ipairs(Players:GetPlayers()) do createESP(p) end
-        else
-            for _, d in pairs(espObjects) do 
-                if d.Billboard then d.Billboard:Destroy() end 
-            end
-            espObjects = {}
+        if not Value then
+            for player, _ in pairs(espObjects) do cleanupESP(player) end
         end
     end
 })
 
-MovementTab:CreateToggle({
-    Name = "NoClip",
+VisualsTab:CreateToggle({
+    Name = "Skeleton ESP",
     CurrentValue = false,
-    Callback = function(Value) toggleNoClip(Value) end
+    Callback = function(Value) skeletonEnabled = Value end
 })
 
-MovementTab:CreateSlider({
-    Name = "WalkSpeed",
-    Range = {16, 150},
-    Increment = 2,
-    CurrentValue = 60,
-    Callback = function(Value)
-        currentWalkSpeed = Value
-        if speedEnabled then
-            updateWalkSpeed()
-        end
-    end
+VisualsTab:CreateToggle({
+    Name = "Tracer ESP",
+    CurrentValue = false,
+    Callback = function(Value) tracerEnabled = Value end
 })
 
-MovementTab:CreateToggle({
-    Name = "Speed Hack",
-    CurrentValue = false,
-    Callback = function(Value)
-        speedEnabled = Value
-        updateWalkSpeed()
-    end
-})
+MovementTab:CreateToggle({ Name = "NoClip", CurrentValue = false, Callback = function(Value) toggleNoClip(Value) end })
+MovementTab:CreateSlider({ Name = "WalkSpeed", Range = {16, 150}, Increment = 2, CurrentValue = 60, Callback = function(Value) currentWalkSpeed = Value enforceWalkSpeed() end })
+MovementTab:CreateToggle({ Name = "Speed Hack", CurrentValue = false, Callback = function(Value)
+    speedEnabled = Value
+    if Value then startSpeedHack() else stopSpeedHack() end
+end})
 
 Rayfield:Notify({
     Title = "Ferhacks Arsenal Loaded",
-    Content = "Menu Updated | WalkSpeed Fixed",
+    Content = "Advanced ESP Added (Skeleton + Tracer)",
     Duration = 8
 })
